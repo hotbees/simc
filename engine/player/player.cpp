@@ -2698,6 +2698,7 @@ constexpr size_t byte_size    = 6;
 
 static std::string generate_traits_hash( player_t* player )
 {
+  player->sim->print_debug( "TALENT_GEN_START" );
   std::string export_str;
   auto ptr = player->is_ptr();
 
@@ -2706,22 +2707,27 @@ static std::string generate_traits_hash( player_t* player )
 
   size_t head = 0;
   size_t byte = 0;
-  auto put_bit = [ &export_str, &head, &byte ]( size_t bits, unsigned value ) {
+  auto put_bit = [ &export_str, &head, &byte, player ]( size_t bits, unsigned value ) {
     for ( size_t i = 0; i < bits; i++ )
     {
       size_t bit = head % byte_size;
       head++;
       byte += ( ( value >> std::min( i, sizeof( value ) * 8 - 1 ) ) & 0b1 ) << bit;
+      player->sim->print_debug( "{} {} {} {} {}", head, bits, value, byte, base64_char[ byte ] );
       if ( bit == byte_size - 1 )
       {
+        player->sim->print_debug( "new char: {}", base64_char[ byte ] );
         export_str += base64_char[ byte ];
         byte = 0;
       }
     }
   };
 
+  player->sim->print_debug( "version bits");
   put_bit( version_bits, LOADOUT_SERIALIZATION_VERSION );
+  player->sim->print_debug( "spec bits" );
   put_bit( spec_bits, static_cast<unsigned>( player->specialization() ) );
+  player->sim->print_debug( "tree bits" );
   put_bit( tree_bits, 0 );  // 0-filled to bypass validation, as GetTreeHash() is unavailable externally
 
   std::map<unsigned, std::vector<std::pair<const trait_data_t*, unsigned>>> tree_nodes;
@@ -2752,6 +2758,8 @@ static std::string generate_traits_hash( player_t* player )
 
   for ( auto& [ id, node ] : tree_nodes )
   {
+    player->sim->print_debug("{}", export_str );
+    player->sim->print_debug("id: {}", id);
     if ( node.size() > 1 )
     {
       range::sort( node, [ ptr ]( const auto& a, const auto& b ) {
@@ -2770,17 +2778,21 @@ static std::string generate_traits_hash( player_t* player )
       if ( rank )
       {
         trait = node[ i ].first;
+        player->sim->print_debug( "node type: {}", trait->node_type );
         index = as<unsigned>( i );
         break;
       }
     }
 
+
     if ( rank )  // is node selected?
     {
+      player->sim->print_debug( "node selected" );
       put_bit( 1, 1 );
     }
     else
     {
+      player->sim->print_debug( "node not selected" );
       put_bit( 1, 0 );
       continue;
     }
@@ -2788,31 +2800,37 @@ static std::string generate_traits_hash( player_t* player )
     // is node purchased? granted nodes are baseline 1 rank.
     if ( rank > ( trait_data_t::is_granted( trait, player->type, player->specialization(), ptr ) ? 1U : 0U ) )
     {
+      player->sim->print_debug( "node purchased" );
       put_bit( 1, 1 );
     }
     else
     {
+      player->sim->print_debug( "node is free" );
       put_bit( 1, 0 );
       continue;
     }
 
     if ( rank == trait->max_ranks )  // is node partially ranked?
     {
+      player->sim->print_debug( "node max rank" );
       put_bit( 1, 0 );
     }
     else
     {
+      player->sim->print_debug( "node partial rank" );
       put_bit( 1, 1 );
       put_bit( rank_bits, rank );
     }
 
     if ( is_choice )  // is choice node?
     {
+      player->sim->print_debug( "is choice node" );
       put_bit( 1, 1 );
       put_bit( choice_bits, index );
     }
     else
     {
+      player->sim->print_debug( "not choice node" );
       put_bit( 1, 0 );
     }
   }
@@ -2820,6 +2838,7 @@ static std::string generate_traits_hash( player_t* player )
   if ( head % byte_size )
     export_str += base64_char[ byte ];
 
+  player->sim->print_debug( "{}", export_str );
   return export_str;
 }
 
