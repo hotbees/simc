@@ -285,7 +285,6 @@ public:
     buff_t* initiative;
     buff_t* inner_demon;
     buff_t* exergy;
-    buff_t* momentum;
     buff_t* out_of_range;
     buff_t* restless_hunter;
     buff_t* tactical_retreat;
@@ -436,7 +435,6 @@ public:
       player_talent_t relentless_onslaught;
       player_talent_t burning_wound;
 
-      player_talent_t momentum;
       player_talent_t exergy;
       player_talent_t inertia;
       player_talent_t chaos_theory;
@@ -646,7 +644,6 @@ public:
     const spell_data_t* inner_demon_buff;
     const spell_data_t* inner_demon_damage;
     const spell_data_t* exergy_buff;
-    const spell_data_t* momentum_buff;
     const spell_data_t* inertia_buff;
     const spell_data_t* ragefire_damage;
     const spell_data_t* soulscar_debuff;
@@ -1780,7 +1777,6 @@ public:
 
     // Havoc
     ab::parse_effects( p()->buff.exergy );
-    ab::parse_effects( p()->buff.momentum );
     ab::parse_effects( p()->buff.inertia );
     ab::parse_effects( p()->buff.restless_hunter );
     ab::parse_effects( p()->buff.tww1_havoc_4pc );
@@ -3021,37 +3017,48 @@ struct eye_beam_base_t : public demon_hunter_spell_t
   }
 };
 
-struct eye_beam_t : public eye_beam_base_t
+struct abyssal_gaze_t : public demonsurge_trigger_t<demonsurge_ability::ABYSSAL_GAZE, eye_beam_base_t>
 {
-  eye_beam_t( demon_hunter_t* p, util::string_view options_str )
-    : eye_beam_base_t( "eye_beam", p, p->talent.havoc.eye_beam, options_str )
+  abyssal_gaze_t( demon_hunter_t* p )
+    : base_t( "abyssal_gaze", p, p->hero_spec.abyssal_gaze, "" )
   {
-  }
-
-  bool ready() override
-  {
-    if ( p()->buff.demonsurge_hardcast->check() )
-    {
-      return false;
-    }
-    return eye_beam_base_t::ready();
   }
 };
 
-struct abyssal_gaze_t : public demonsurge_trigger_t<demonsurge_ability::ABYSSAL_GAZE, eye_beam_base_t>
+struct eye_beam_t : public eye_beam_base_t
 {
-  abyssal_gaze_t( demon_hunter_t* p, util::string_view options_str )
-    : base_t( "abyssal_gaze", p, p->hero_spec.abyssal_gaze, options_str )
+  abyssal_gaze_t* abyssal_gaze;
+  double abyssal_gaze_cost;
+
+  eye_beam_t( demon_hunter_t* p, util::string_view options_str )
+    : eye_beam_base_t( "eye_beam", p, p->talent.havoc.eye_beam, options_str ), abyssal_gaze( nullptr ), abyssal_gaze_cost( 0 )
   {
+    if ( p->talent.felscarred.demonic_intensity->ok() ) {
+      abyssal_gaze = new abyssal_gaze_t( p );
+      abyssal_gaze_cost = abyssal_gaze->data().cost( POWER_FURY );
+      add_child( abyssal_gaze );
+    }
   }
 
-  bool ready() override
+  double cost() const override
   {
-    if ( !p()->buff.demonsurge_hardcast->check() )
+    if ( p()->buff.demonsurge_hardcast->check() )
     {
-      return false;
+      return abyssal_gaze_cost;
     }
-    return base_t::ready();
+    return base_costs[ POWER_FURY ];
+  }
+
+  void execute() override
+  {
+    if ( p()->buff.demonsurge_hardcast->check() )
+    {
+      abyssal_gaze->execute_on_target( target );
+      stats->add_execute( 0_ms, target );
+      return;
+    }
+
+    eye_beam_base_t::execute();
   }
 };
 
@@ -7688,8 +7695,6 @@ action_t* demon_hunter_t::create_action( util::string_view name, util::string_vi
     return new disrupt_t( this, options_str );
   if ( name == "eye_beam" )
     return new eye_beam_t( this, options_str );
-  if ( name == "abyssal_gaze" )
-    return new abyssal_gaze_t( this, options_str );
   if ( name == "fel_barrage" )
     return new fel_barrage_t( this, options_str );
   if ( name == "fel_eruption" )
@@ -7816,11 +7821,6 @@ void demon_hunter_t::create_buffs()
   buff.exergy = make_buff( this, "exergy", spec.exergy_buff );
   buff.exergy->set_refresh_duration_callback( []( const buff_t* b, timespan_t d ) {
     // TODO: Verify if this behavior is correct
-    return std::min( b->remains() + d, 30_s );  // Capped to 30 seconds
-  } );
-
-  buff.momentum = make_buff( this, "momentum", spec.momentum_buff );
-  buff.momentum->set_refresh_duration_callback( []( const buff_t* b, timespan_t d ) {
     return std::min( b->remains() + d, 30_s );  // Capped to 30 seconds
   } );
 
@@ -8586,7 +8586,6 @@ void demon_hunter_t::init_spells()
   talent.havoc.burning_wound        = find_talent_spell( talent_tree::SPECIALIZATION, "Burning Wound" );
 
   talent.havoc.exergy          = find_talent_spell( talent_tree::SPECIALIZATION, "Exergy" );
-  talent.havoc.momentum        = find_talent_spell( talent_tree::SPECIALIZATION, "Momentum" );
   talent.havoc.inertia         = find_talent_spell( talent_tree::SPECIALIZATION, "Inertia" );
   talent.havoc.chaos_theory    = find_talent_spell( talent_tree::SPECIALIZATION, "Chaos Theory" );
   talent.havoc.restless_hunter = find_talent_spell( talent_tree::SPECIALIZATION, "Restless Hunter" );
@@ -8740,7 +8739,6 @@ void demon_hunter_t::init_spells()
   spec.inner_demon_buff      = talent.havoc.inner_demon->ok() ? find_spell( 390145 ) : spell_data_t::not_found();
   spec.inner_demon_damage    = talent.havoc.inner_demon->ok() ? find_spell( 390137 ) : spell_data_t::not_found();
   spec.exergy_buff           = talent.havoc.exergy->ok() ? find_spell( 208628 ) : spell_data_t::not_found();
-  spec.momentum_buff         = talent.havoc.momentum->ok() ? find_spell( 208628 ) : spell_data_t::not_found();
   spec.inertia_buff          = talent.havoc.inertia->ok() ? find_spell( 427641 ) : spell_data_t::not_found();
   spec.ragefire_damage       = talent.havoc.ragefire->ok() ? find_spell( 390197 ) : spell_data_t::not_found();
   spec.restless_hunter_buff  = talent.havoc.restless_hunter->ok() ? find_spell( 390212 ) : spell_data_t::not_found();
