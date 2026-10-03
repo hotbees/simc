@@ -10415,7 +10415,9 @@ struct festering_base_t : public death_knight_melee_attack_t
   {
     min_ghouls = as<int>( p->spec.festering_strike->effectN( 3 ).base_value() );
     // rng().range() does not include the max value, so we add 1 here
-    max_ghouls = as<int>( p->spec.festering_strike->effectN( 4 ).base_value() + 1 );
+    max_ghouls  = as<int>( p->spec.festering_strike->effectN( 4 ).base_value() + 1 );
+    trigger_gcd = data().gcd();
+    gcd_type    = gcd_haste_type::ATTACK_HASTE;
   }
 
   double composite_target_multiplier( player_t* target ) const override
@@ -10448,11 +10450,20 @@ private:
 
 struct festering_scythe_t final : public festering_base_t
 {
-  festering_scythe_t( std::string_view n, death_knight_t* p )
-    : festering_base_t( n, p, p->spell.festering_scythe )
+  festering_scythe_t( std::string_view n, death_knight_t* p ) : festering_base_t( n, p, p->spell.festering_scythe )
   {
-    aoe             = -1;
-    background      = true;
+    aoe = -1;
+  }
+
+  timespan_t gcd() const override
+  {
+    timespan_t t = festering_base_t::gcd();
+
+    // Festering scythe currently double dips the hasted gcd.
+    if ( p()->bugs )
+      t *= p()->composite_melee_haste();
+
+    return t;
   }
 
   void execute() override
@@ -10476,7 +10487,8 @@ struct festering_strike_t final : public festering_base_t
     parse_options( options_str );
 
     if ( p->talent.unholy.festering_scythe.ok() )
-      set_replacement_action( get_action<festering_scythe_t>( "festering_scythe", p ), p->buffs.festering_scythe, !p->options.wcl_reporting_mode );
+      set_replacement_action( new festering_scythe_t( "festering_scythe", p ), p->buffs.festering_scythe,
+                              !p->options.wcl_reporting_mode );
   }
 
   void execute() override
@@ -15454,8 +15466,7 @@ void death_knight_t::spell_lookups()
   pet_spell.unholy_devotion_buff = conditional_spell_lookup( talent.unholy.unholy_devotion.ok(), 1270491 );
   pet_spell.ghoulish_frenzy      = conditional_spell_lookup( talent.unholy.ghoulish_frenzy.ok(), 377589 );
   // Army of the dead
-  pet_spell.army_claw =
-      conditional_spell_lookup( talent.unholy.army_of_the_dead.ok() || talent.unholy.doomed_bidding.ok(), 199373 );
+  pet_spell.army_claw = conditional_spell_lookup( specialization() == DEATH_KNIGHT_UNHOLY, 199373 );
   // All Ghouls
   pet_spell.pet_stun = find_spell( 47466 );
   pet_spell.leap     = find_spell( 91809 );
@@ -17676,98 +17687,12 @@ struct death_knight_module_t : public module_t
   
   void register_hotfixes() const override
   {
-    /*
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Frost aura (direct) buffed 6%", 179689,
+    hotfix::register_effect( "Death Knight", "2026-10-2", "Blightfall reverted to 100%.", 1285178,
                              hotfix::HOTFIX_FLAG_LIVE )
         .field( "base_value" )
         .operation( hotfix::HOTFIX_SET )
-        .modifier( 2 )
-        .verification_value( -4 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Frost aura (periodic) buffed 6%", 191174,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "base_value" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( 2 )
-        .verification_value( -4 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Frost aura (pet) buffed 6%", 844541,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "base_value" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( 2 )
-        .verification_value( -4 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Frost aura (guardian) buffed 6%", 1032340,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "base_value" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( 2 )
-        .verification_value( -4 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Frost aura (melee) buffed 6%", 1052714,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "base_value" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( 314 )
-        .verification_value( 297 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (oh) buffed 15%", 60372,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .6210621 )
-        .verification_value( .540054 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (mh) buffed 15%", 331344,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .6210621 )
-        .verification_value( .540054 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (2h) buffed 15%", 815754,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .919399 )
-        .verification_value( .799477 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (oh) buffed 15%", 60372,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .6210621 )
-        .verification_value( .540054 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (mh frost) buffed 15%", 1275166,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .6210621 )
-        .verification_value( .540054 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (oh frost) buffed 15%", 1275169,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .6210621 )
-        .verification_value( .540054 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (2h) buffed 15%", 815754,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .919399 )
-        .verification_value( .799477 );
-
-    hotfix::register_effect( "Death Knight", "2026-08-22", "Obliterate (2h frost) buffed 15%", 1275170,
-                             hotfix::HOTFIX_FLAG_LIVE )
-        .field( "ap_coefficient" )
-        .operation( hotfix::HOTFIX_SET )
-        .modifier( .919399 )
-        .verification_value( .799477 );
-   */
+        .modifier( 100 )
+        .verification_value( 200 );
   }
 
   void register_actor_initializers( sim_t* ) const override
